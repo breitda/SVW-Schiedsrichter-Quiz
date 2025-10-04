@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Schiri-Quiz (Neulingskurs)</title>
+<style>
+  :root{
+    --bg:#0f172a; /* slate-900 */
+    --panel:#111827ee; /* gray-900 */
+    --card:#1f2937; /* gray-800 */
+    --muted:#94a3b8; /* slate-400 */
+    --text:#e5e7eb; /* gray-200 */
+    --accent:#22c55e; /* green-500 */
+    --accent2:#3b82f6; /* blue-500 */
+    --warn:#f59e0b; /* amber-500 */
+    --bad:#ef4444; /* red-500 */
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; background:radial-gradient(1200px 800px at 80% -10%, #1f2937 0%, #0b1020 60%, #070b16 100%), var(--bg); color:var(--text)}
+  header{padding:24px 16px; text-align:center}
+  header h1{margin:0; font-size:clamp(22px,3.5vw,36px)}
+  header p{margin:.35rem 0 0; color:var(--muted)}
+  .container{max-width:1000px; margin:0 auto; padding:16px}
+  .menu, .quiz, .result{background:var(--panel); border:1px solid #26304a; border-radius:18px; padding:22px; box-shadow:0 10px 30px #00000055}
+ 
+  .grid{display:grid; gap:14px}
+  .grid.cols-3{grid-template-columns:repeat(auto-fit, minmax(220px,1fr))}
+  .card{background:linear-gradient(180deg,#1d2434,#161b29); border:1px solid #28324b; padding:18px; border-radius:16px}
+  .card h3{margin:.2rem 0 .6rem; font-size:1.05rem}
+  button{appearance:none; border:0; background:var(--accent2); color:#fff; font-weight:600; padding:12px 16px; border-radius:12px; cursor:pointer}
+  button.secondary{background:#334155}
+  button.ghost{background:transparent; border:1px dashed #3b4c6b}
+  button:disabled{opacity:.6; cursor:not-allowed}
+ 
+  .question{font-size:1.1rem; line-height:1.5}
+  .options{display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  fieldset{border:1px solid #2a3450; border-radius:14px; padding:12px 12px 4px; background:var(--card)}
+  legend{padding:0 8px; color:var(--muted); font-size:.9rem}
+ 
+  .opt{display:flex; align-items:center; gap:10px; padding:8px 6px; border-radius:10px}
+  .opt input{transform:scale(1.2)}
+  .kicker{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .badge{display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; font-size:.85rem}
+  .ok{background:#0b3b24; border:1px solid #157347}
+  .err{background:#3b0b14; border:1px solid #7f1d1d}
+  .inf{background:#0b1f3b; border:1px solid #1d4ed8}
+  .muted{opacity:.85; color:var(--muted)}
+  .explain{margin-top:14px; background:#0f172a; border:1px solid #233152; padding:14px; border-radius:12px}
+  .progress{height:10px; background:#0b1222; border-radius:999px; overflow:hidden; border:1px solid #223052}
+  .bar{height:100%; width:0%; background:linear-gradient(90deg,var(--accent),#a3e635); transition:width .35s ease}
+  .footer{display:flex; gap:10px; justify-content:space-between; flex-wrap:wrap}
+  .mutelist{font-size:.92rem; color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Schiedsrichter‑Quiz (Neulingskurs)</h1>
+  <p>Wähle ein Niveau, beantworte pro Aufgabe <strong>zwei</strong> Punkte: Disziplinarstrafe &amp; Spielfortsetzung.</p>
+</header>
+<div class="container">
+  <section id="app" class="menu"></section>
+</div>
+
+<script>
+// ---- Datenbasis -----------------------------------------------------------
+// Vorgaben aus der Grafik: Disziplinarstrafe und Spielfortsetzung
+const DISCIPLINE = ["keine","gelb","gelb/rot","rot"];
+const RESTART = [
+  "weiterspielen",
+  "indirekter Freistoß",
+  "direkter Freistoß",
+  "Anstoß",
+  "Einwurf",
+  "Eckball",
+  "Strafstoß"
+];
+
+/** Aufgabenbank je Level. Notation: { text, correct:{discipline, restart}, explain } */
+// Drei feste, disjunkte Quiz-Sets pro Level (je 15 Fragen)
+const QUIZ_SETS = {
+  leicht: [
+    // --- LEICHT – QUIZ 1 ---
+    [
+      { text: "Angreifer steht im Abseits und greift ins Spiel ein, nachdem ein Mitspieler den Ball gespielt hat.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Abseits ist ein technisches Vergehen ohne Karte. Restart: <b>indirekter Freistoß</b> am Ort des Eingreifens (Regel 11)." },
+      { text: "Ein Verteidiger klärt den Ball ins Toraus, ohne Foulspiel.", correct: { discipline: "keine", restart: "Eckball" }, explain: "Kein Vergehen. Zuletzt Verteidiger berührt → <b>Eckstoß</b> (Regel 17)." },
+      { text: "Taktisches Halten im Mittelfeld stoppt einen aussichtsreichen Angriff (SPA).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Halten → <b>DFK</b>. SPA ⇒ <b>Verwarnung</b> (Regel 12)." },
+      { text: "Torwart nimmt einen eindeutigen, absichtlichen Rückpass mit der Hand auf.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Technisches Vergehen. Restart: <b>IDFK</b> am Ort der Berührung (Regel 12)." },
+      { text: "Unabsichtliches Handspiel des Angreifers außerhalb des Strafraums führt unmittelbar zu Vorteil.", correct: { discipline: "keine", restart: "direkter Freistoß" }, explain: "Strafbares Handspiel → <b>DFK</b>; Karte nur bei SPA/Notbremse." },
+      { text: "Einwurf korrekt ausgeführt; Werfer spielt den Ball sofort erneut, bevor eine andere Person ihn berührt.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Doppelberührung beim Einwurf → <b>IDFK</b> (Regel 15)." },
+      { text: "Torwart hält den Ball länger als 8 Sekunden in den Händen.", correct: { discipline: "keine", restart: "Eckball" }, explain: "Abweichung gemäß Vorgabe: >8 Sekunden → <b>Eckball</b> für die Gegner." },
+      { text: "Angreifer dribbelt den Torwart aus und schießt ins leere Tor; ein Mitspieler stand zuvor im Abseits, griff aber nicht ein.", correct: { discipline: "keine", restart: "Anstoß" }, explain: "Keine Beteiligung aus Abseitsposition → Tor zählt → <b>Anstoß</b>." },
+      { text: "Falscher Einwurf (beide Füße nicht auf/über Linie).", correct: { discipline: "keine", restart: "Einwurf" }, explain: "Falscher Einwurf → <b>Einwurf</b> für den Gegner (Regel 15)." },
+      { text: "Angreifer stellt sich beim Abwurf neben den Torwart, behindert ihn aber nicht.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Ohne Behinderung → <b>Weiterspielen</b>." },
+      { text: "Unsportliches Wegschlagen des Balles nach Pfiff (Zeitspiel).", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Verzögerung der Spielfortsetzung (USB) ⇒ <b>Gelb</b>. Restart gem. Unterbrechung; hier <b>IDFK</b>, wenn nur dafür unterbrochen." },
+      { text: "Torabstoß landet direkt im gegnerischen Strafraum, ohne weitere Berührung.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Abstoß ist im Spiel, sobald gestoßen → <b>Weiterspielen</b>." },
+      { text: "Verteidiger spielt den Ball absichtlich (keine Rettungsaktion); Angreifer aus Abseitsstellung fängt ab.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Absichtliches Spielen setzt Abseits zurück → <b>Weiterspielen</b>." },
+      { text: "Torwart berührt den Ball beim Abstoß zweimal, bevor ein anderer ihn spielt.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Doppelberührung → <b>IDFK</b> (Regel 16)." },
+      { text: "Leichtes Rempeln im Kampf um den Ball – normaler Körpereinsatz.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Legales Körpereinsetzen → <b>Weiterspielen</b>." }
+    ],
+    // --- LEICHT – QUIZ 2 ---
+    [
+      { text: "Einwurf: Werfer steht 1 m im Feld und wirft ein.", correct: { discipline: "keine", restart: "Einwurf" }, explain: "Falscher Einwurf → <b>Einwurf</b> für den Gegner (Regel 15)." },
+      { text: "Ball prallt vom Schiedsrichter zum Gegner; Team in Ballbesitz ändert sich nicht.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Schiri ist Luft, solange keine Ausnahmen greifen → <b>Weiterspielen</b>." },
+      { text: "Torwart fängt Flanke, hält sie kurz (unter 8 s) und wirft ab.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Kein Verstoß → <b>Weiterspielen</b>." },
+      { text: "Angreifer läuft beim Einwurf des Mitspielers ins Feld, bevor der Ball im Spiel ist.", correct: { discipline: "keine", restart: "Einwurf" }, explain: "Technischer Fehler → Gegner erhält <b>Einwurf</b>." },
+      { text: "Torwart wirft den Ball aus der Hand direkt ins gegnerische Tor.", correct: { discipline: "keine", restart: "Abstoß" }, explain: "Direktes Tor ins gegnerische Tor aus Abwurf zählt nicht → <b>Abstoß</b> (Ball war zuletzt Angreifer)." },
+      { text: "Angreifer behindert Torwart bei Abwurf klar (Kontakt).", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Unsportliches Behindern des Torwarts ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Rücksichtslose Rempelei abseits des Balls (ohne Verletzungsgefahr).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Rücksichtslos ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Verteidiger spielt den Ball zur Ecke, um Druck zu nehmen.", correct: { discipline: "keine", restart: "Eckball" }, explain: "Zuletzt Verteidiger am Ball → <b>Eckstoß</b>." },
+      { text: "Angreifer schießt nach Abseits-Pfiff den Ball weg.", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "USB (Ballwegschlagen) ⇒ <b>Gelb</b>. Restart bleibt <b>IDFK</b> wegen Abseits." },
+      { text: "Ein Verteidiger berührt beim Abstoß den Ball, bevor er den Strafraum verlassen hat (aktuelle Regel).", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Seit 2019 im Spiel, sobald gestoßen → <b>Weiterspielen</b>." },
+      { text: "Angreifer begeht leichtes, fahrlässiges Halten.", correct: { discipline: "keine", restart: "direkter Freistoß" }, explain: "Fahrlässig → <b>DFK</b> ohne Karte." },
+      { text: "Abwehrspieler köpft den Ball absichtlich zum Torwart, der ihn in die Hand nimmt.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Kopfball-Rückgabe ist erlaubt → <b>Weiterspielen</b>." },
+      { text: "Torwart hält den Ball klar länger als 8 s in den Händen.", correct: { discipline: "keine", restart: "Eckball" }, explain: "Vereinbarte Sonderregel: >8 s → <b>Eckball</b>." },
+      { text: "Foul beim Kopfballduell: Stützen auf dem Gegner (fahrlässig).", correct: { discipline: "keine", restart: "direkter Freistoß" }, explain: "Fahrlässiges Vergehen → <b>DFK</b>, keine Karte." },
+      { text: "Angreifer tritt den Eckstoß, berührt den Ball danach sofort ein zweites Mal.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Doppelberührung bei Eckstoß → <b>IDFK</b>." }
+    ],
+    // --- LEICHT – QUIZ 3 ---
+    [
+      { text: "Verteidiger spielt den Ball zur Seitenlinie ohne Foul.", correct: { discipline: "keine", restart: "Einwurf" }, explain: "Ball im Seitenaus → <b>Einwurf</b> für Gegner." },
+      { text: "Unbeabsichtigtes Handspiel eines Verteidigers dicht am Körper.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Kein strafbares Handspiel → <b>Weiterspielen</b>." },
+      { text: "Abstoß direkt ins eigene Tor (ohne weitere Berührung).", correct: { discipline: "keine", restart: "Eckball" }, explain: "Direktes Eigentor aus Abstoß ist nicht möglich → <b>Eckball</b>." },
+      { text: "Torwart wirft den Ball ins eigene Tor (aus der Hand).", correct: { discipline: "keine", restart: "Eckball" }, explain: "Auch aus Abwurf kein direktes Eigentor → <b>Eckball</b>." },
+      { text: "Angreifer blockt den Ball aus 1 m Entfernung beim Abstoß (Ball noch im Torraum).", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "USB bei Abstoß‑Ausführung ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Verteidiger begeht ein leichtes Schieben am Flügel (fahrlässig).", correct: { discipline: "keine", restart: "direkter Freistoß" }, explain: "Fahrlässig → <b>DFK</b>, keine Karte." },
+      { text: "Torwart hält >8 s (erneut).", correct: { discipline: "keine", restart: "Eckball" }, explain: ">8 s → <b>Eckball</b>." },
+      { text: "Angreifer steht passiv im Abseits, Ball geht ins Toraus ohne Beteiligung.", correct: { discipline: "keine", restart: "Abstoß" }, explain: "Kein Eingreifen → Ball über Torlinie vom Angreifer → <b>Abstoß</b>." },
+      { text: "Einwurf: Fuß teilweise in der Luft (kein Bodenkontakt).", correct: { discipline: "keine", restart: "Einwurf" }, explain: "Falscher Einwurf → Gegner erhält <b>Einwurf</b>." },
+      { text: "Verteidiger klärt ins Seitenaus in der eigenen Hälfte.", correct: { discipline: "keine", restart: "Einwurf" }, explain: "Seitenaus → <b>Einwurf</b>." },
+      { text: "Leichte Behinderung Torwart beim Abwurf ohne Kontakt.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Behinderung der Ausführung → <b>IDFK</b> (ohne Karte, wenn nicht USB)." },
+      { text: "Abseits: Verteidiger köpft absichtlich nach hinten, Angreifer aus Abseits fängt ab.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Absichtliches Spielen setzt Abseits zurück → <b>Weiterspielen</b>." },
+      { text: "Rücksichtslose Blockade an der Seitenlinie (ohne Ball).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Rücksichtslos → <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Doppelberührung beim Einwurf durch den Mitspieler (toter Trick).", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Zweite Berührung vom selben Team vor Gegnerkontakt → <b>IDFK</b>." },
+      { text: "Ball prallt vom Schiri zum Stürmer, der ohnehin in Ballbesitz war (keine Torchance).", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Keine der Ausnahmen → <b>Weiterspielen</b>." }
+    ]
+  ],
+  mittel: [
+    // --- MITTEL – QUIZ 1 ---
+    [
+      { text: "Hoher Fuß gegen einen nahe stehenden Gegenspieler ohne Kontakt – Gegenspieler weicht zurück.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Gefährliches Spiel ohne Kontakt → <b>IDFK</b>." },
+      { text: "Beleidigende Sprache gegen den Schiedsrichter (Spiel wird dafür unterbrochen).", correct: { discipline: "rot", restart: "indirekter Freistoß" }, explain: "Grob beleidigend ⇒ <b>Rot</b>. Restart: <b>IDFK</b> am Ballort." },
+      { text: "Rücksichtsloses Einsteigen am Mittelkreis.", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Rücksichtslos ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Trikotziehen (SPA) am Flügel.", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "SPA ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Rücksichtsloses Tackling im eigenen Strafraum (ohne Ballspiel).", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Rücksichtslos + im Strafraum ⇒ <b>Gelb</b> + <b>Strafstoß</b>." },
+      { text: "Unerlaubter Auswechselspieler hält im eigenen Strafraum einen Angreifer fest.", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Unerlaubtes Betreten (USB) + Halten ⇒ <b>Gelb</b> + <b>Strafstoß</b>." },
+      { text: "Mauerverstöße: Spieler läuft zu früh vor (unter 9,15 m) und blockt den Ball.", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Ausführungsstörung ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Torwart fängt und lässt sofort fallen – kein Gegnereinfluss.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Kein Verstoß ⇒ <b>Weiterspielen</b>." },
+      { text: "Handspiel: Verteidiger vergrößert deutlich die Körperfläche außerhalb des Strafraums.", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Unsportliches Handspiel (SPA) → <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Verbotener Feint beim Strafstoß.", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Täuschung nach Abschluss der Anlaufbewegung ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Schütze trifft den Pfosten und spielt sofort erneut.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Doppelberührung ⇒ <b>IDFK</b> (Regel 14)." },
+      { text: "Torwart wirft den Ball direkt ins eigene Tor (aus der Hand).", correct: { discipline: "keine", restart: "Eckball" }, explain: "Direktes Eigentor aus Abwurf nicht möglich → <b>Eckball</b>." },
+      { text: "Feldspieler betritt ohne Genehmigung das Feld.", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Unerlaubtes Betreten ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Angreifer blockiert Torwart bei Abwurf mit Kontakt.", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "USB gegen Torwart ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Ball berührt den Schiedsrichter ohne Wirkung auf Ballbesitz/Angriffsversprechen.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Keine Ausnahmen → <b>Weiterspielen</b>." }
+    ],
+    // --- MITTEL – QUIZ 2 ---
+    [
+      { text: "Taktisches Handspiel eines Angreifers außerhalb des Strafraums (SPA).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Unsportlich + SPA ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Grätsche mit geringem Risiko (fahrlässig) trifft Gegner am Fuß.", correct: { discipline: "keine", restart: "direkter Freistoß" }, explain: "Fahrlässig ⇒ <b>DFK</b> ohne Karte." },
+      { text: "Torhüter legt Ball kurz auf den Boden, holt Schwung und nimmt wieder auf (keine Gegnernähe).", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Keine Unsportlichkeit → <b>Weiterspielen</b>." },
+      { text: "Ausführung eines Freistoßes: Gegenspieler steht 8 m entfernt, blockiert aber nicht – schneller Freistoß führt zum Tor.", correct: { discipline: "keine", restart: "Anstoß" }, explain: "Schneller Freistoß zulässig; zu nah stehender Gegner trägt sein Risiko → <b>Anstoß</b>." },
+      { text: "Abseits: Torwart wehrt Schuss ab (Rettungsaktion); passiver Angreifer staubt ab.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Rettungsaktion setzt Abseits nicht zurück → <b>IDFK</b>." },
+      { text: "Eckstoß: Ball berührt den Eckfahnenpfosten und bleibt im Feld – Angreifer spielt weiter.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Eckfahne ist Ausrüstung → Ball im Spiel → <b>Weiterspielen</b>." },
+      { text: "Strafraum-Vergehen: Halten an der Strafraumlinie (Linie gehört zum Strafraum).", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Linie gehört dazu → Vergehen auf/über Linie ⇒ <b>Strafstoß</b> + <b>Gelb</b> (SPA)." },
+      { text: "Torwart hält >8 s den Ball (Sonderregel).", correct: { discipline: "keine", restart: "Eckball" }, explain: ">8 s ⇒ <b>Eckball</b>." },
+      { text: "Rücksichtsloses Beinstellen an der Seitenlinie.", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Rücksichtslos ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Einwurf: falscher Ort (10 m vorgesetzt), SR pfeift.", correct: { discipline: "keine", restart: "Einwurf" }, explain: "Falscher Ort → Wiederholung durch Gegner: <b>Einwurf</b>." },
+      { text: "Torwart faustet den Ball, wird leicht berührt – keine Auswirkung – Ball bleibt im Spiel.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Kein Foul, Vorteil → <b>Weiterspielen</b>." },
+      { text: "Doppelberührung beim Freistoß durch denselben Spieler.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Zweite Berührung vor anderem Spieler → <b>IDFK</b>." },
+      { text: "Simulieren im Strafraum ohne Kontakt (Täuschung).", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Täuschung (USB) ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Unsportliches Verhindern einer schnellen Spielfortsetzung (Ball wegtragen).", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "USB Verzögerung ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Abseits: Verteidiger lenkt unkontrolliert ab (keine Kontrolle), Angreifer verwertet.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Unkontrollierte Ablenkung setzt Abseits nicht zurück → <b>IDFK</b>." }
+    ],
+    // --- MITTEL – QUIZ 3 ---
+    [
+      { text: "Torwart nimmt einen Rückpass mit der Hand auf, nachdem ein Mitspieler den Ball hochgekickt und per Kopf weitergeleitet hat.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Trick kam vom Mitspieler? Nur der Trickausführer wird verwarnt; Torwart-Handspiel bleibt <b>IDFK</b> (hier keine Verwarnung für TW)." },
+      { text: "Torwart >8 s in der Hand (erneut).", correct: { discipline: "keine", restart: "Eckball" }, explain: "Sonderregel: >8 s ⇒ <b>Eckball</b>." },
+      { text: "Einwurf: absichtliches Anwerfen eines Gegners, um sich selbst vorzulegen (aus kurzer Distanz, ungefährlich).", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Erlaubt, solange kein unsportliches Verhalten → <b>Weiterspielen</b>." },
+      { text: "Rücksichtsloses Ziehen am Trikot im Mittelfeld.", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Rücksichtslos/SPA ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Doppelberührung beim Abstoß (TW spielt erneut).", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Zweite Berührung vor anderer Person → <b>IDFK</b>." },
+      { text: "Abseits: Angreifer beeinflusst Gegner durch Sichtbehinderung beim Schuss aus Abseitsposition.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Eingreifen durch Beeinflussen → <b>IDFK</b>." },
+      { text: "Unsportliches Halten des Balles in der Ecke zur Zeitschinderei (ohne Foul, fairer Körpereinsatz).", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Legitim, solange keine Unsportlichkeit/Foul → <b>Weiterspielen</b>." },
+      { text: "Verhindern eines aussichtsreichen Angriffs durch Handspiel (außerhalb SR).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "SPA-Handspiel ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Abstoß: Angreifer betritt Strafraum zu früh, erhält Ball und schießt Tor.", correct: { discipline: "keine", restart: "Wiederholung" }, explain: "Angreifer betritt zu früh → Abstoß wird <b>wiederholt</b>." },
+      { text: "Fouls beim Sprungduell: fahrlässiges Stoßen.", correct: { discipline: "keine", restart: "direkter Freistoß" }, explain: "Fahrlässig ⇒ <b>DFK</b> ohne Karte." },
+      { text: "Eckstoß wird kurz ausgeführt; Ausführender berührt den Ball sofort erneut.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Doppelberührung ⇒ <b>IDFK</b>." },
+      { text: "Torwart lässt Ball fallen; Gegner nimmt weg, ohne Foul.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Ball im Spiel und frei → <b>Weiterspielen</b>." },
+      { text: "Spieler ruft laut, um Gegner zu täuschen (ohne Beleidigung).", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Unsportliches Täuschen (USB) ⇒ <b>Gelb</b> + <b>IDFK</b>." },
+      { text: "Ball prallt vom Pfosten an die Hand des Verteidigers, Arm eng am Körper.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Keine Vergrößerung/Absicht → <b>Weiterspielen</b>." },
+      { text: "Rücksichtsloses Halten im eigenen Strafraum (keine TOR-Verhinderung).", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Rücksichtslos + im Strafraum ⇒ <b>Gelb</b> + <b>Strafstoß</b>." }
+    ]
+  ],
+  schwer: [
+    // --- SCHWER – QUIZ 1 ---
+    [
+      { text: "Notbremse durch Halten im Strafraum: Verteidiger zerrt durchgebrochenen Angreifer zu Boden.", correct: { discipline: "rot", restart: "Strafstoß" }, explain: "Verhindern einer offensichtlichen Torchance (Notbremse) → <b>Rot</b> + <b>Strafstoß</b>." },
+      { text: "Feldspieler verhindert auf der Torlinie mit der Hand ein sicheres Tor.", correct: { discipline: "rot", restart: "Strafstoß" }, explain: "Notbremse durch Handspiel ⇒ <b>Rot</b> + <b>Strafstoß</b>." },
+      { text: "Rücksichtsloses Tackling – zweite Verwarnung.", correct: { discipline: "gelb/rot", restart: "direkter Freistoß" }, explain: "Zweite Verwarnung ⇒ <b>Gelb/Rot</b> + <b>DFK</b>." },
+      { text: "Rücksichtsloses Foul im Mittelfeld (SPA).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "SPA ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Rücksichtsloses Foul im Strafraum ohne Ballspiel.", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Rücksichtslos + im Strafraum ⇒ <b>Gelb</b> + <b>Strafstoß</b>." },
+      { text: "Teamoffizieller (z. B. Trainer) tritt auf dem Spielfeld einen Gegenspieler.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Gewalttätigkeit durch Offiziellen ⇒ <b>Rot</b> + <b>DFK</b> (oder Strafstoß, wenn im Strafraum)." },
+      { text: "Torwart foult außerhalb des Strafraums ohne Chance auf Ball (klare Torchance).", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Notbremse außerhalb SR ⇒ <b>Rot</b> + <b>DFK</b>." },
+      { text: "Verteidiger spielt den Ball absichtlich – Angreifer aus Abseitsstellung erzielt Tor.", correct: { discipline: "keine", restart: "Anstoß" }, explain: "Absichtliches Spielen setzt Abseits zurück → <b>Anstoß</b>." },
+      { text: "Rückpass‑Trick: Mitspieler lupft, köpft zum Keeper; Keeper nimmt auf.", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Umgehung Rückpassregel ⇒ <b>Gelb</b> (Trickausführer) + <b>IDFK</b>." },
+      { text: "Übermäßige Härte im Mittelfeld.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Übermäßige Härte ⇒ <b>Rot</b> + <b>DFK</b>." },
+      { text: "Torwart foult klar im Strafraum bei Torchance, spielt aber deutlich den Ball.", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Versuch den Ball zu spielen mildert → <b>Gelb</b> + <b>Strafstoß</b>." },
+      { text: "Angreifer Handspiel im Strafraum, erzielt danach Tor.", correct: { discipline: "gelb", restart: "indirekter Freistoß" }, explain: "Unsportliches Handspiel Angreifer → <b>IDFK</b> + Verwarnung." },
+      { text: "Simulieren (zweite Verwarnung).", correct: { discipline: "gelb/rot", restart: "indirekter Freistoß" }, explain: "Täuschung ⇒ <b>Gelb</b>; zweite Verwarnung ⇒ <b>Gelb/Rot</b> + <b>IDFK</b>." },
+      { text: "Abstoß: Verteidiger spielt im Strafraum, bevor Ball heraus ist (aktuelle Regel).", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Ball ist im Spiel, sobald gestoßen → <b>Weiterspielen</b>." },
+      { text: "Schneller Freistoß führt zum Tor, Gegner stand zu nah, blockierte aber nicht.", correct: { discipline: "keine", restart: "Anstoß" }, explain: "Zulässig → <b>Anstoß</b>." }
+    ],
+    // --- SCHWER – QUIZ 2 ---
+    [
+      { text: "Grätsche mit offener Sohle, hohes Tempo – Kontakt am Schienbein.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Übermäßige Härte/Gefährdung der Gesundheit ⇒ <b>Rot</b> + <b>DFK</b>." },
+      { text: "Notbremse: Handspiel außerhalb Strafraums verhindert klares Tor.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Notbremse durch Handspiel außerhalb SR ⇒ <b>Rot</b> + <b>DFK</b>." },
+      { text: "Torwart >8 s hält den Ball bei Führung kurz vor Schluss.", correct: { discipline: "keine", restart: "Eckball" }, explain: ">8 s laut Vorgabe ⇒ <b>Eckball</b>." },
+      { text: "Taktisches Festhalten eines durchstartenden Angreifers 30 m vor dem Tor (SPA, nicht klar TOR).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "SPA ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Notbremse im Strafraum ohne Chance auf Ball (Halten/Reißen).", correct: { discipline: "rot", restart: "Strafstoß" }, explain: "Kein Ballspiel möglich ⇒ keine Milderung → <b>Rot</b> + <b>Strafstoß</b>." },
+      { text: "Torwart springt rücksichtslos mit Knie voran in Gegner (im Strafraum).", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Rücksichtslos ⇒ <b>Gelb</b> + <b>Strafstoß</b>." },
+      { text: "Zweikampf: rücksichtsloses Aufstützen in Offensivluftduell.", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Rücksichtslos ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Abseits: Verteidiger klärt auf der Linie (Rettungsaktion), Angreifer aus Abseits verwertet Abpraller.", correct: { discipline: "keine", restart: "indirekter Freistoß" }, explain: "Rettungsaktion setzt Abseits nicht zurück → <b>IDFK</b>." },
+      { text: "Teamoffizieller betritt das Feld und verhindert Konter durch Festhalten.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Gewalttätig/Einwirkung Offizieller gegen Spieler ⇒ <b>Rot</b> + <b>DFK</b>." },
+      { text: "Unsportliches Torjubel-Vergehen: Ausziehen des Trikots (zweite Verwarnung).", correct: { discipline: "gelb/rot", restart: "Anstoß" }, explain: "Zweite Verwarnung nach Tor ⇒ <b>Gelb/Rot</b>; Spiel wird mit <b>Anstoß</b> fortgesetzt." },
+      { text: "Torwart spielt den Ball absichtlich mit der Hand außerhalb des Strafraums (keine Notbremse).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Unerlaubtes Handspiel Torwart außerhalb SR ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Griff ins Gesicht (keine Schlagstärke).", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Gesichtskontakt mit Aggression ⇒ <b>Rot</b> + <b>DFK</b>." },
+      { text: "Rücksichtsloses Foul + Verhinderung schneller Ausführung (Ball wegtreten danach).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Foul (DFK) + USB (Gelb) – Verwarnung für USB zusätzlich möglich." },
+      { text: "Torwart kollidiert heftig, spielt aber klar den Ball; Angreifer stürzt (keine Torchance).", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Saubere Ballaktion, kein Foul → <b>Weiterspielen</b>." },
+      { text: "Beinstellen mit unverhältnismäßiger Härte am Mittelkreis.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Übermäßige Härte ⇒ <b>Rot</b> + <b>DFK</b>." }
+    ],
+    // --- SCHWER – QUIZ 3 ---
+    [
+      { text: "Notbremse: Halten am Trikot außerhalb Strafraum – letzter Mann – keine Ballchance.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Offensichtliche Torchance verhindert → <b>Rot</b> + <b>DFK</b>." },
+      { text: "Schweres Foulspiel: offener Stollen auf Knöchel, hohe Intensität.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Schweres Foulspiel ⇒ <b>Rot</b> + <b>DFK</b>." },
+      { text: "Notbremse im Strafraum, Torwart versucht den Ball zu spielen und trifft leicht den Gegner.", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Versuch der Ballaktion → Milderung auf <b>Gelb</b> + <b>Strafstoß</b>." },
+      { text: "Teamoffizieller beleidigt den Schiedsrichter grob von der Bank aus (Spiel-Unterbrechung).", correct: { discipline: "rot", restart: "indirekter Freistoß" }, explain: "Grobe Beleidigung durch Offiziellen ⇒ <b>Rot</b> + <b>IDFK</b>." },
+      { text: "Nach Vorteil pfeifst du doch (spätes Foul; Vorteil trat nicht ein).", correct: { discipline: "keine", restart: "direkter Freistoß" }, explain: "Zurück zum Foul → <b>DFK</b>; Karte je nach Foul (hier keine)." },
+      { text: "Angreifer stößt Verteidiger rücksichtslos beim Kopfball im Strafraum der Angreifer.", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Rücksichtslos ⇒ <b>Gelb</b> + <b>DFK</b> für Verteidiger-Team." },
+      { text: "Torwart >8 s (erneut) – taktisches Zeitspiel.", correct: { discipline: "keine", restart: "Eckball" }, explain: ">8 s ⇒ <b>Eckball</b>." },
+      { text: "Verteidiger klärt mit der Hand auf der Linie reflexartig (kein Torwart).", correct: { discipline: "rot", restart: "Strafstoß" }, explain: "Notbremse/Verhindern eines Tores durch Handspiel ⇒ <b>Rot</b> + <b>Strafstoß</b>." },
+      { text: "Nach Auswechslung betritt ausgewechselter Spieler erneut das Feld und foult rücksichtslos.", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Unerlaubtes Betreten (Gelb) + Foul (DFK); bei rücksichtslos zusätzlich Verwarnung – hier zusammengefasst." },
+      { text: "Schiedsrichter wird angeschossen, Ballbesitz ändert sich, aber keine aussichtsreiche Chance entsteht.", correct: { discipline: "keine", restart: "weiterspielen" }, explain: "Kein in den Regeln genannter Stopp-Grund → <b>Weiterspielen</b>." },
+      { text: "Angreifer stößt TW im Fünfmeterraum (Torraum) leicht, TW verfehlt Ball.", correct: { discipline: "keine", restart: "direkter Freistoß" }, explain: "Foul gegen TW ⇒ <b>DFK</b> für Verteidiger." },
+      { text: "Notbremse: Ziehen von hinten kurz vor Strafraumkante (außerhalb).", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Außerhalb SR, klare Torchance verhindert → <b>Rot</b> + <b>DFK</b>." },
+      { text: "Ball trifft Arm in unnatürlicher Höhe nach eigener Bewegung des Arms zum Ball (außerhalb SR).", correct: { discipline: "gelb", restart: "direkter Freistoß" }, explain: "Strafbares Handspiel (USB/SPA) ⇒ <b>Gelb</b> + <b>DFK</b>." },
+      { text: "Verteidiger springt mit hoher Intensität in den Gegner – trifft auch Ball, aber mit übermäßiger Härte.", correct: { discipline: "rot", restart: "direkter Freistoß" }, explain: "Gefährdung der Gesundheit → <b>Rot</b> + <b>DFK</b>." },
+      { text: "Rücksichtsloses Beinstellen im Strafraum nach Querpass (keine Ballchance).", correct: { discipline: "gelb", restart: "Strafstoß" }, explain: "Rücksichtslos + im Strafraum ⇒ <b>Gelb</b> + <b>Strafstoß</b>." }
+    ]
+  ]
+};
+
+function buildQuiz(level, variant){
+  const sets = QUIZ_SETS[level];
+  return sets && sets[variant] ? sets[variant] : (sets ? sets[0] : []);
+}
+
+// ---- UI / Logik -----------------------------------------------------------
+const $ = sel => document.querySelector(sel);
+const app = document.getElementById('app');
+
+function renderMenu(){
+  app.className = 'menu';
+  app.innerHTML = `
+    <div class="grid cols-3">
+      ${renderLevelCard('Leicht', 'leicht')}
+      ${renderLevelCard('Mittel', 'mittel')}
+      ${renderLevelCard('Schwer', 'schwer')}
+    </div>
+    <p class="mutelist" style="margin-top:12px">Tipp: Nach jeder Lösung bekommst du eine Begründung und die korrekte Entscheidung.</p>
+  `;
+}
+
+function renderLevelCard(title, key){
+  return `
+  <article class="card">
+    <h3>${title}</h3>
+    <p class="muted">Wähle eines der drei Quiz‑Sets (je 15 Fragen, zufällig aus der Aufgabenbank).</p>
+    <div class="kicker" style="margin-top:10px; flex-wrap:wrap">
+      <button onclick="startQuiz('${key}',0)">Quiz&nbsp;1</button>
+      <button onclick="startQuiz('${key}',1)">Quiz&nbsp;2</button>
+      <button onclick="startQuiz('${key}',2)">Quiz&nbsp;3</button>
+      <button class="ghost" onclick="preview('${key}')">Aufgabenbank ansehen</button>
+    </div>
+  </article>`;
+}
+
+let state = { key:null, variant:0, idx:0, score:0, answers:[], questions:[] };
+
+function startQuiz(key, variant=0){
+  state = { key, variant, idx:0, score:0, answers:[], questions: buildQuiz(key, variant) };
+  renderQuestion();
+}
+
+function preview(key){
+  const list = BANK[key].map((q,i)=>`<li><strong>${i+1}.</strong> ${q.text}</li>`).join('');
+  app.className = 'menu';
+  app.innerHTML = `
+    <div class="card">
+      <h3>Aufgabenbank: ${key.toUpperCase()}</h3>
+      <ol>${list}</ol>
+      <div class="kicker" style="margin-top:10px"><button class="secondary" onclick="renderMenu()">Zurück</button></div>
+    </div>`;
+}
+
+function renderQuestion(){
+  const questions = state.questions;
+  const q = questions[state.idx];
+  app.className = 'quiz';
+  const progress = ((state.idx)/questions.length*100).toFixed(1);
+  const total = questions.length;
+  app.innerHTML = `
+    <div class="progress" aria-hidden="true"><div class="bar" style="width:${progress}%"></div></div>
+    <p class="muted" style="margin:10px 0 2px">Frage ${state.idx+1} von ${total} – Quiz: <b>${state.key.toUpperCase()} ${state.variant+1}</b></p>
+    <h2 class="question">${q.text}</h2>
+
+    <div class="options" role="group" aria-label="Antwortgruppen">
+      ${renderFieldset('Disziplinarstrafe', 'discipline', DISCIPLINE)}
+      ${renderFieldset('Spielfortsetzung', 'restart', RESTART)}
+    </div>
+
+    <div class="footer" style="margin-top:18px">
+      <div class="kicker">
+        <button class="secondary" onclick="renderMenu()">Menü</button>
+        <button id="confirmBtn" onclick="confirmAnswer()">Bestätigen</button>
+      </div>
+      <div class="mutelist">Beide Felder müssen gewählt sein.</div>
+    </div>
+  `;
+}
+
+function renderFieldset(title, name, options){
+  const group = options.map((opt,i)=>{
+    const id = `${name}-${i}`;
+    return `<label for="${id}" class="opt"><input type="radio" name="${name}" id="${id}" value="${opt}"> ${opt}</label>`;
+  }).join('');
+  return `<fieldset><legend>${title}</legend>${group}</fieldset>`;
+}
+
+function getChecked(name){
+  const el = document.querySelector(`input[name="${name}"]:checked`);
+  return el? el.value : null;
+}
+
+// Auswertungs-Helfer (auch für Tests verwendet)
+function isCorrect(q, d, r){
+  const okD = d === q.correct.discipline;
+  const okR = r === q.correct.restart;
+  return { okD, okR, both: okD && okR };
+}
+
+function confirmAnswer(){
+  const d = getChecked('discipline');
+  const r = getChecked('restart');
+  if(!d || !r){
+    alert('Bitte Disziplinarstrafe und Spielfortsetzung auswählen.');
+    return;
+  }
+  const q = state.questions[state.idx];
+  const check = isCorrect(q, d, r);
+  if(check.both) state.score++;
+  state.answers.push({ d, r, okD: check.okD, okR: check.okR });
+
+  const badges = `
+    <span class="badge ${check.okD? 'ok':'err'}">Disziplinarstrafe: ${check.okD? 'richtig' : 'falsch'} (${q.correct.discipline})</span>
+    <span class="badge ${check.okR? 'ok':'err'}">Spielfortsetzung: ${check.okR? 'richtig' : 'falsch'} (${q.correct.restart})</span>
+  `;
+
+  const progress = (((state.idx+1)/state.questions.length)*100).toFixed(1);
+  const explain = q.explain;
+  app.innerHTML = `
+    <div class="progress" aria-hidden="true"><div class="bar" style="width:${progress}%"></div></div>
+    <p class="muted" style="margin:10px 0 2px">Frage ${state.idx+1} von ${state.questions.length} – Quiz: <b>${state.key.toUpperCase()} ${state.variant+1}</b></p>
+    <h2 class="question">${q.text}</h2>
+    <div class="kicker" style="margin:8px 0 2px; gap:8px">${badges}</div>
+    <div class="explain">
+      <strong>Begründung & richtige Entscheidung:</strong>
+      <p style="margin:.6rem 0 0">${explain}</p>
+    </div>
+    <div class="footer" style="margin-top:16px">
+      <div class="kicker">
+        <button class="secondary" onclick="renderMenu()">Menü</button>
+        ${state.idx < state.questions.length-1 ?
+          '<button onclick="nextQuestion()">Nächste Frage</button>' :
+          '<button onclick="finishQuiz()">Ergebnis anzeigen</button>'}
+      </div>
+      <div class="mutelist">Hinweis: Für die Punktzahl zählen nur Aufgaben, bei denen <b>beide</b> Teile korrekt sind.</div>
+    </div>
+  `;
+}
+
+function nextQuestion(){
+  state.idx++;
+  renderQuestion();
+}
+
+function finishQuiz(){
+  const total = state.questions.length;
+  const pct = Math.round((state.score/total)*100);
+  app.className = 'result';
+  let review = '<ol style="margin-top:.5rem">';
+  state.questions.forEach((q,i)=>{
+    const a = state.answers[i];
+    const mark = (a.okD && a.okR) ? '✅' : '❌';
+    review += `<li style="margin:.6rem 0">${mark} <strong>${q.text}</strong><br><span class="muted">Deine Wahl:</span> [${a.d} / ${a.r}] · <span class="muted">Richtig:</span> [${q.correct.discipline} / ${q.correct.restart}]</li>`;
+  });
+  review += '</ol>';
+
+  app.innerHTML = `
+    <h2 style="margin:0 0 .2rem">Ergebnis</h2>
+    <p class="muted" style="margin:0 0 10px">Quiz: <b>${state.key.toUpperCase()} ${state.variant+1}</b></p>
+    <div class="kicker" style="margin:8px 0 14px">
+      <span class="badge inf">Punkte: ${state.score} / ${total}</span>
+      <span class="badge ${pct>=80?'ok':pct>=60?'warn':'err'}">Quote: ${pct}%</span>
+    </div>
+    <div class="card">${review}</div>
+    <div class="kicker" style="margin-top:12px">
+      <button onclick="startQuiz('${state.key}', state.variant)">Nochmals spielen</button>
+      <button class="secondary" onclick="renderMenu()">Zurück zum Menü</button>
+    </div>
+  `;
+}
+
+// ---- Selbsttests (Konsole) -----------------------------------------------
+function selfTest(){
+  const tests = [];
+  // 1) Torwart-Zeitregel (deine Vorgabe): >8s -> Eckball
+  const qTime = BANK.leicht.find(q=>q.text.startsWith('Torwart hält den Ball länger als 8 Sekunden'));
+  tests.push({name:'Torwart-Zeit -> Eckball', expect:'Eckball', got:qTime.correct.restart});
+  // 2) Notbremse im Strafraum
+  const qNB = BANK.schwer.find(q=>q.text.startsWith('Notbremse durch Halten'));
+  tests.push({name:'Notbremse im Strafraum', expect:true, got:(qNB.correct.discipline==='rot' && qNB.correct.restart==='Strafstoß')});
+  // 3) Abseits-Standardfall -> IDFK
+  const qOff = BANK.leicht[0];
+  tests.push({name:'Abseits -> IDFK', expect:'indirekter Freistoß', got:qOff.correct.restart});
+  // 4) Teamoffizieller tritt Spieler -> Rot + DFK
+  const qOffz = BANK.schwer.find(q=>q.text.includes('Teamoffizieller'));
+  tests.push({name:'Teamoffizieller -> Rot + DFK', expect:true, got:(qOffz.correct.discipline==='rot' && qOffz.correct.restart==='direkter Freistoß')});
+  // 5) Doppelberührung beim Einwurf -> IDFK
+  const qThrow = BANK.leicht.find(q=>q.text.startsWith('Einwurf korrekt ausgeführt'));
+  tests.push({name:'Doppelberührung Einwurf -> IDFK', expect:'indirekter Freistoß', got:qThrow.correct.restart});
+
+  console.group('Schiri-Quiz Self‑Tests');
+  let pass = 0;
+  tests.forEach((t,i)=>{ const ok = (t.got===t.expect); if(ok) pass++; console.log(`#${i+1}`, ok?'✅':'❌', t.name, '-> got:', t.got, 'expect:', t.expect); });
+  console.log(`Passed: ${pass}/${tests.length}`);
+  console.groupEnd();
+}
+
+// Initial render
+renderMenu();
+selfTest();
+</script>
+</body>
+</html>
